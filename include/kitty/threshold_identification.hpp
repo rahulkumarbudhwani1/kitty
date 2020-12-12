@@ -33,10 +33,11 @@
 #pragma once
 
 #include <vector>
-// #include <lpsolve/lp_lib.h> /* uncomment this line to include lp_solve */
+#include <lpsolve/lp_lib.h> /* uncomment this line to include lp_solve */
 #include "traits.hpp"
 #include <fstream>
 #include <iostream>
+#include <math.h>
 namespace kitty
 {
 
@@ -60,7 +61,7 @@ template<typename TT, typename = std::enable_if_t<is_complete_truth_table<TT>::v
 bool is_threshold( const TT& tt, std::vector<int64_t>* plf = nullptr )
 {
 	
-	std::cout << "num vars is " <<tt.num_vars() << std::endl;
+	//std::cout << "num vars is " <<tt.num_vars() << std::endl;
 	
 	//auto bit_iter = tt.begin();
 	
@@ -73,7 +74,7 @@ bool is_threshold( const TT& tt, std::vector<int64_t>* plf = nullptr )
 	
 	TT new_tt= tt;
 	auto new_bit_iter = new_tt.begin();
-	std::cout << "bits is " << *new_bit_iter << std::endl;
+	//std::cout << "bits is " << *new_bit_iter << std::endl;
 	
 	for(int i=0 ; i< num_vars ; i++){
 		int temp=0; int temp_temp= 0;
@@ -130,7 +131,7 @@ bool is_threshold( const TT& tt, std::vector<int64_t>* plf = nullptr )
 		}
 	}
 	
-	
+	/*
 	std::string filename = "scheduling.lp" ;
 	std::ofstream fout( filename, std::ofstream::out );
 	fout << "min:";
@@ -174,13 +175,13 @@ bool is_threshold( const TT& tt, std::vector<int64_t>* plf = nullptr )
     }
 	
 	std::string line, obj;
-    std::getline( fin, line ); /* first line is empty */
+    std::getline( fin, line ); 
 	if(line[0]=='T')
 		return false;
-    std::getline( fin, obj ); /* second line is the value of objective function */
+    std::getline( fin, obj ); 
 	
-    std::getline( fin, line ); /* third line is empty */
-    std::getline( fin, line ); /* fourth line is useless */
+    std::getline( fin, line ); 
+    std::getline( fin, line ); 
 	for(int i=0; i< num_vars ; i++){
 	
 		std::getline( fin, line );
@@ -207,15 +208,146 @@ bool is_threshold( const TT& tt, std::vector<int64_t>* plf = nullptr )
 	std::getline( ss, value );
 	//std::cout << var_name << " " << value << std::endl;
 	linear_form.at( num_vars ) = std::stoi(value);
+	for(auto p:linear_form)
+			std::cout << p << " " ;	
+    
+	*/
+	lprec *lp;
+	int Ncol, *colno = NULL,  ret = 0;
+	double *row = NULL;
+	
+	Ncol = num_vars+1;
+	lp = make_lp(0, Ncol);
+	if(lp == NULL)
+		ret = 1;
+	
+	
+	
+	if(ret == 0) {
+		/* let us name our variables. Not required, but can be useful for debugging */
+		for(int i=0;i<num_vars;i++){
+			std::string str_temp="w_" + std::to_string(i);
+			char* chr_temp=new char[str_temp.length()];
+			strcpy(chr_temp, str_temp.c_str());
+			set_col_name(lp, i+1, chr_temp);
+		}
+		std::string str_temp1="T";
+		char* chr_temp1=new char[str_temp1.length()];
+		strcpy(chr_temp1, str_temp1.c_str());
+		set_col_name(lp, num_vars+1, chr_temp1);
+		
+		/* create space large enough for one row */
+		colno = (int *) malloc(Ncol * sizeof(*colno));
+		row = (double *) malloc(Ncol * sizeof(*row));
+		if((colno == NULL) || (row == NULL))
+			ret = 2;
+	}
+	
+	if(ret == 0) {
+		set_add_rowmode(lp, TRUE);  /* makes building the model faster if it is done rows by row */
+		
+		
+		
+		for(int i=0; i<Ncol; i++){
+			
+			
+			for(int j=0 ; j< Ncol; j++){
+			
+				colno[j] = j+1; /* first column */
+				if(i==j)
+					row[j] = 1;
+				else 
+					row[j] = 0;
+
+			}
+		
+			/* add the row to lpsolve */
+			if(!add_constraintex(lp, Ncol, row, colno, GE, 0))
+				ret = 3;
+		}
+		
+		for(int i=0 ; i< comp ; i++){
+		
+			int bit1 = int((*(new_bit_iter+(i/64)) & ( base << ((i)%64) )) >> ((i)%64));
+			
+			for(int j=0 ; j< num_vars ; j++){
+				colno[j] = j+1;
+				int bit2 = (i / (int( base << j)))% 2 ;
+				if(bit2 == 1)
+					row[j] = 1;
+				else	
+					row[j] = 0;
+				
+			}
+			colno[num_vars]=num_vars+1;
+			row[num_vars]=-1;
+			if(bit1 == 1){
+				add_constraintex(lp, Ncol, row, colno, GE, 0);
+			}
+			if(bit1 == 0){
+				add_constraintex(lp, Ncol, row, colno, LE, -1);
+			}
+		}
+		
+		
+	}
+	
+	set_add_rowmode(lp, FALSE);
+	for(int j=0 ; j< Ncol ; j++){
+		colno[j] = j+1;
+		row[j] = 1;
+	}
+	set_obj_fnex(lp, Ncol, row, colno);
+	
+	
+	
+	set_minim(lp);
+	//write_LP(lp, stdout);
+	//write_lp(lp, "model.lp");
+	set_verbose(lp, IMPORTANT);
+	ret = solve(lp);
+	
+	if(ret==0){
+		
+		get_variables(lp, row);
+
+		//std::cout << "bits is " << *new_bit_iter << std::endl;
+		//std::cout << "it is " << true<< std::endl;
+		for(int i=0;i<Ncol;i++)
+			linear_form.at(i)=int64_t(round(row[i]));
+			
+
+		for(int i=0;i<num_vars;i++){
+			if(tracker.at(i)==1){
+				linear_form.at(i)=-linear_form.at(i);
+				linear_form.at(num_vars) =  linear_form.at(num_vars) + linear_form.at(i);
+			}
+		}
 		
 
-	//std::cout << "bits is " << *new_bit_iter << std::endl;
-	//std::cout << "it is " << true<< std::endl;
-	for(int i=0;i<num_vars;i++){
-		if(tracker.at(i)==1){
-			linear_form.at(i)=-linear_form.at(i);
-			linear_form.at(num_vars) =  linear_form.at(num_vars) + linear_form.at(i);
+	}
+	else {
+		return false;
+		if(row != NULL)
+			free(row);
+		if(colno != NULL)
+			free(colno);
+
+		if(lp != NULL) {
+			/* clean up such that all used memory by lpsolve is freed */
+			delete_lp(lp);
 		}
+	}
+	
+	
+	if(row != NULL)
+		free(row);
+	if(colno != NULL)
+		free(colno);
+
+	if(lp != NULL) {
+		/* clean up such that all used memory by lpsolve is freed */
+		delete_lp(lp);
 	}
 
 
